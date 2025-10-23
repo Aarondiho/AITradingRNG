@@ -1,3 +1,4 @@
+# api/deriv_socket.py
 import asyncio
 import json
 import logging
@@ -9,22 +10,14 @@ logger = logging.getLogger("deriv_socket")
 
 
 class DerivSocket:
-    """
-    Deriv live websocket client with:
-    - register(symbol, callback): bind per-symbol tick callbacks
-    - start(): connect, authorize (optional), subscribe to symbols, wait until ready
-    - stop(): graceful shutdown
-    - auto-reconnect with exponential backoff
-    """
-
     def __init__(self, app_id: str, api_key: Optional[str] = None, max_retries: int = 6):
         self.app_id = app_id
         self.api_key = api_key
-        self._ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._ws = None
         self._callbacks: Dict[str, Callable[[dict], None]] = {}
         self._running = False
         self._ready_event = asyncio.Event()
-        self._recv_task: Optional[asyncio.Task] = None
+        self._recv_task = None
         self.max_retries = max_retries
         self._connect_lock = asyncio.Lock()
 
@@ -32,17 +25,11 @@ class DerivSocket:
         self._callbacks[symbol] = on_tick
 
     async def start(self):
-        """
-        Start connection asynchronously and wait for readiness (connected + subscribed).
-        """
         asyncio.create_task(self._connect_with_backoff())
         await asyncio.wait_for(self._ready_event.wait(), timeout=15)
         logger.info("[DERIV] Live socket ready (connected and subscribed)")
 
     async def stop(self):
-        """
-        Gracefully stop recv loop and close websocket.
-        """
         logger.info("[DERIV] Stopping live socket")
         self._running = False
         if self._recv_task:
@@ -62,9 +49,6 @@ class DerivSocket:
         logger.info("[DERIV] Live socket stopped")
 
     async def _connect_with_backoff(self):
-        """
-        Connect + authorize + subscribe with exponential backoff and limited retries.
-        """
         async with self._connect_lock:
             attempt = 0
             backoff = 1.0
@@ -80,12 +64,10 @@ class DerivSocket:
                         auth = json.loads(await self._ws.recv())
                         logger.info("[DERIV] Authorized: %s", auth.get("msg_type"))
 
-                    # Subscribe all registered symbols
                     for sym in self._callbacks:
                         await self._ws.send(json.dumps({"ticks": sym, "subscribe": 1}))
                     logger.info("[DERIV] Subscribed to %d symbols", len(self._callbacks))
 
-                    # Mark ready and start recv loop
                     self._ready_event.set()
                     if not self._recv_task or self._recv_task.done():
                         self._recv_task = asyncio.create_task(self._recv_loop())
@@ -101,9 +83,6 @@ class DerivSocket:
             raise ConnectionError("DerivSocket failed to connect after retries")
 
     async def _recv_loop(self):
-        """
-        Receive loop: normalize ticks and dispatch to callbacks. Reconnects on closure.
-        """
         try:
             while self._running and self._ws:
                 try:
@@ -139,18 +118,17 @@ class DerivSocket:
             asyncio.create_task(self._connect_with_backoff())
 
     def _normalize_tick(self, data: dict) -> Optional[dict]:
-        """
-        Normalize Deriv tick message to a consistent schema.
-        """
         try:
             tick = data.get("tick")
             if not tick:
                 return None
             return {
                 "symbol": tick["symbol"],
-                "quote": float(tick["quote"]),
+                "quote": float(tick.get("quote") or tick.get("quote")),
                 "epoch": int(tick["epoch"]),
                 "epoch_ms": int(tick["epoch"]) * 1000,
+                "ask": float(tick.get("ask")) if tick.get("ask") is not None else None,
+                "bid": float(tick.get("bid")) if tick.get("bid") is not None else None,
                 "src": "deriv",
                 "schema": "tick.v1",
             }

@@ -1,3 +1,4 @@
+#config/settings.txt
 version: 1
 runtime:
   log_level: INFO
@@ -5,76 +6,42 @@ runtime:
   heartbeat_interval_s: 20
 symbols:
   - R_10
-  - R_25
-  - R_50
-  - R_75
-  - R_100
 
-# Historical fetch mode for long horizon
-historical_mode: candles
+# Configuration for main launcher and Phase 2 training orchestration.
+# Edit these values per-run or copy into training/experiments/run_{id}/config.json for reproducibility.
 
-# Whether to also fetch last 5000 ticks at startup
-bootstrap_ticks: true
 
-# Interval in seconds between merge/features/validation cycles
-merge_interval_seconds: 60
+paths:
+  base_dir: "data"                              # root where data/<symbol>/features, parity, live_agg live
+  selected_shards: "training/selected_shards.jsonl"
+  candles_ndjson: "training/candles_1m.ndjson"
+  scalers: "training/scalers_live_only.json"
+  experiments_root: "training/experiments"      # per-run experiment directories will be created here
 
-#enable phase 2
-phase2_enabled: true
+data:
+  min_cov_for_training: 0.8                     # minimal manifest.bidask_coverage to accept shard for training
+  min_shard_rows: 1000                          # minimal rows per shard
+  split_method: "proportion"                    # "proportion" or "epochs"
+  split_proportions: [0.8, 0.1, 0.1]            # train/val/test proportions
+  bidask_thresh: 0.8                            # threshold used for scalers live-backed split
 
-#enable phase 3
+model:
+  model_type: "mlp"                             # "mlp" or "transformer" (affects train.py flags only)
+  hidden_dims: [256, 128]
+  dropout: 0.1
+  use_mdn: false
+  n_mixtures: 5
+  use_cls_head: true
+  regime_cardinality: 10
 
-simulator:
-  enabled: true
-  mode: "hybrid"          # "parametric", "bootstrap", or "hybrid"
-  count: 1000             # number of synthetic ticks per run
-  mixture_components: 3   # for parametric/hybrid
-  bootstrap_block: 5      # block size for bootstrap
-  noise_scale: 0.08       # for hybrid FFT noise
+training:
+  batch_size: 256
+  lr: 0.001
+  epochs: 100
+  early_stop_patience: 10
   seed: 42
-  min_records: 500
+  cls_weight: 0.5
 
-#enable drift phase 4
-
-drift:
-  enabled: true
-  cadence_seconds: 1800
-  min_records: 500
-  kl_threshold: 0.1
-  ks_p_threshold: 0.01
-  autocorr_threshold: 0.05
-  fft_threshold: 0.05
-
-#enable phase 5
-hardening:
-  enabled: true
-  count: 1000
-  mode: "hybrid"
-  mixture_components: 2
-  bootstrap_block: 5
-  noise_scale: 0.1
-  seed: 42
-  min_records: 500
-  auc_threshold: 0.6
-
-
-#enable 7th phase
-fingerprinting:
-  enabled: true
-  count: 1000
-  mode: "hybrid"
-  mixture_components: 2
-  bootstrap_block: 5
-  noise_scale: 0.1
-  seed: 42
-  min_records: 500
-  tolerance: 0.05
-
-  
-io:
-  flush_interval_s: 5
-  max_buffer: 5000
-  format: csv
-trainer:
-  min_shard_ticks: 5000
-  epochs: 1
+# Orchestration
+run_phase2: true                                # set false to skip Phase2 and only run Phase1
+phase2_start_delay_seconds: 1000                  # delay in seconds before Phase2 starts after launcher is up
